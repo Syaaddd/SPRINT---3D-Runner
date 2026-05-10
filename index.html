@@ -163,10 +163,6 @@ canvas { display:block; }
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 <script>
-// Event listener dipasang PERTAMA — startGame() adalah function declaration (hoisted)
-document.getElementById('start-btn').addEventListener('click', startGame);
-document.getElementById('start-btn').addEventListener('touchend', e=>{e.preventDefault();startGame();},{passive:false});
-
 // Tampilkan error jelas jika Three.js gagal dimuat (CDN issue, dll)
 if (typeof THREE === 'undefined') {
   var btn = document.getElementById('start-btn');
@@ -212,7 +208,9 @@ scene.add(sun);
 const rimLight = new THREE.PointLight(0xff00aa, 2, 30);
 rimLight.position.set(-5, 5, 0);
 scene.add(rimLight);
-scene.add(Object.assign(new THREE.PointLight(0x00c8ff, 1.5, 20), { position: new THREE.Vector3(0,4,10) }));
+const frontLight = new THREE.PointLight(0x00c8ff, 1.5, 20);
+frontLight.position.set(0, 4, 10);
+scene.add(frontLight);
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const LANE_W = 2.5;
@@ -447,10 +445,16 @@ document.addEventListener('touchmove',e=>{
 },{passive:true});
 
 // ── Game Logic ────────────────────────────────────────────────────────────────
+// Pasang listener di sini — setelah startGame terdefinisi
+document.getElementById('start-btn').addEventListener('click', startGame);
+document.getElementById('start-btn').addEventListener('touchend', e=>{e.preventDefault();startGame();},{passive:false});
+
 function startGame() {
   document.getElementById('overlay').style.display='none';
   document.getElementById('touch-controls').style.pointerEvents='all';
-  S.running=true; S.score=0; S.lives=3; S.speed=12; S.lane=1;
+
+  const best = S.bestScore; // simpan bestScore sebelum reset
+  S.running=true; S.score=0; S.bestScore=best; S.lives=3; S.speed=12; S.lane=1;
   S.targetX=0; S.playerX=0; S.jumpVel=0; S.playerY=0;
   S.isJumping=false; S.isDucking=false; S.invincible=false;
   S.invincibleTimer=0; S.combo=0; S.comboTimer=0;
@@ -459,6 +463,8 @@ function startGame() {
   obstacles.forEach(o=>{ if(o.mesh.parent) scene.remove(o.mesh); }); obstacles.length=0;
   coins.forEach(c=>{ if(c.mesh.parent) scene.remove(c.mesh); }); coins.length=0;
   particles.forEach(p=>{ if(p.mesh.parent) scene.remove(p.mesh); }); particles.length=0;
+  // Reset tile positions to initial state so track looks correct from start
+  tiles.forEach((t,i)=>{ t.position.z = -i*TILE_LEN + TILE_LEN*2; });
   // Restore playerGroup in case it was accidentally removed, then reset its transform
   if(!playerGroup.parent) scene.add(playerGroup);
   playerGroup.visible=true;
@@ -494,7 +500,9 @@ function animate(){
   const dt=Math.min(now-lastT, 0.05); lastT=now;
 
   if(!S.running){
-    playerGroup.position.y=Math.sin(now*1.5)*0.05;
+    // Idle: animasi mengambang di menu — jangan ubah playerGroup.position karena startGame mereset-nya
+    const idleY = Math.sin(now*1.5)*0.05;
+    playerGroup.position.set(0, idleY, 0);
     playerGroup.rotation.y=Math.sin(now*0.5)*0.1;
     renderer.render(scene,camera); return;
   }
@@ -609,9 +617,8 @@ function animate(){
   camera.position.x+=(S.playerX*0.1-camera.position.x)*3*dt;
   renderer.render(scene,camera);
 }
-// Guard against animate() being started more than once
-let _loopStarted = false;
-if (!_loopStarted) { _loopStarted = true; animate(); }
+// Guard: animate() hanya boleh dipanggil SATU KALI
+if (!window._sprintLoopStarted) { window._sprintLoopStarted = true; animate(); }
 
 // Resize
 window.addEventListener('resize',()=>{
