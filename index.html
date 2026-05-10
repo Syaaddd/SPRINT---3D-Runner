@@ -439,8 +439,18 @@ function startGame() {
   S.isJumping=false; S.isDucking=false; S.invincible=false;
   S.invincibleTimer=0; S.combo=0; S.comboTimer=0;
   S.tileOffset=0; S.spawnTimer=0; S.spawnInterval=2.2; S.diffTimer=0;
-  obstacles.forEach(o=>scene.remove(o.mesh)); obstacles.length=0;
-  coins.forEach(c=>scene.remove(c.mesh)); coins.length=0;
+  // Only remove obstacles/coins/particles — never tiles or playerGroup
+  obstacles.forEach(o=>{ if(o.mesh.parent) scene.remove(o.mesh); }); obstacles.length=0;
+  coins.forEach(c=>{ if(c.mesh.parent) scene.remove(c.mesh); }); coins.length=0;
+  particles.forEach(p=>{ if(p.mesh.parent) scene.remove(p.mesh); }); particles.length=0;
+  // Restore playerGroup in case it was accidentally removed, then reset its transform
+  if(!playerGroup.parent) scene.add(playerGroup);
+  playerGroup.visible=true;
+  playerGroup.scale.set(1,1,1);
+  playerGroup.position.set(0,0,0);
+  playerGroup.rotation.set(0,0,0);
+  // Reset child positions that the run-animation offsets each frame
+  body.position.y=1.2; head.position.y=1.85; visor.position.y=1.88;
   for(let i=0;i<5;i++) createCoin(Math.floor(Math.random()*3),-30-i*15);
   updateLivesUI();
   document.getElementById('speed-display').textContent='SPEED: 1.0x';
@@ -583,7 +593,9 @@ function animate(){
   camera.position.x+=(S.playerX*0.1-camera.position.x)*3*dt;
   renderer.render(scene,camera);
 }
-animate();
+// Guard against animate() being started more than once
+let _loopStarted = false;
+if (!_loopStarted) { _loopStarted = true; animate(); }
 
 // Resize
 window.addEventListener('resize',()=>{
