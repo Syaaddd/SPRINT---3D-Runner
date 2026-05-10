@@ -232,7 +232,58 @@ canvas { display:block; }
 #mute-btn:active { transform:scale(0.9); }
 #mute-btn.muted { background:rgba(255,60,60,0.15); border-color:rgba(255,60,60,0.3); }
 
-/* Screen shake */
+/* ── Visual Effects ── */
+
+/* Speed lines canvas overlay */
+#speed-lines {
+  position:fixed; inset:0; pointer-events:none; z-index:6;
+  opacity:0; transition:opacity 0.3s;
+}
+
+/* Damage flash */
+#damage-flash {
+  position:fixed; inset:0; pointer-events:none; z-index:18;
+  background:radial-gradient(ellipse at center, rgba(255,20,20,0.55) 0%, rgba(255,0,0,0.15) 60%, transparent 100%);
+  opacity:0; transition:opacity 0.08s;
+}
+
+/* Score popup container */
+#score-popups {
+  position:fixed; inset:0; pointer-events:none; z-index:12; overflow:hidden;
+}
+.score-popup {
+  position:absolute; font-weight:900; letter-spacing:2px;
+  text-shadow:0 0 12px currentColor;
+  animation:popup-rise 0.85s ease-out forwards;
+  white-space:nowrap;
+}
+@keyframes popup-rise {
+  0%   { opacity:1;   transform:translateY(0)   scale(1); }
+  60%  { opacity:1;   transform:translateY(-40px) scale(1.1); }
+  100% { opacity:0;   transform:translateY(-72px) scale(0.9); }
+}
+
+/* Warning arrow HUD */
+#warn-arrows {
+  position:fixed; bottom:max(155px,env(safe-area-inset-bottom,0px)+155px);
+  left:50%; transform:translateX(-50%);
+  display:flex; gap:clamp(16px,5vw,28px); pointer-events:none; z-index:11;
+  height:28px; align-items:center;
+}
+.warn-arrow {
+  font-size:clamp(18px,5vw,24px); line-height:1;
+  animation:warn-pulse 0.45s ease-in-out infinite alternate;
+  filter:drop-shadow(0 0 6px currentColor);
+}
+.warn-arrow.lane-0 { color:#ff3300; }
+.warn-arrow.lane-1 { color:#ff3300; }
+.warn-arrow.lane-2 { color:#ff3300; }
+@keyframes warn-pulse {
+  from { opacity:0.5; transform:translateY(0); }
+  to   { opacity:1.0; transform:translateY(-5px); }
+}
+
+/* Screen shake (existing — kept) */
 @keyframes shake {
   0%,100%{transform:translate(0,0);}
   15%{transform:translate(-6px,3px);}
@@ -384,6 +435,10 @@ button, [role="button"] { touch-action:manipulation; }
 </div>
 
 <!-- HUD -->
+<canvas id="speed-lines"></canvas>
+<div id="damage-flash"></div>
+<div id="score-popups"></div>
+<div id="warn-arrows"></div>
 <div id="score-display">000000</div>
 <div id="lives-display">♥ ♥ ♥</div>
 <div id="speed-display">SPEED: 1.0x</div>
@@ -1624,6 +1679,7 @@ function startGame() {
   powerups.forEach(p=>{ if(p.mesh.parent) scene.remove(p.mesh); }); powerups.length=0;
   S.themeEnvParticles.forEach(p=>{ if(p.mesh.parent) scene.remove(p.mesh); });
   S.themeEnvParticles = [];
+  if (typeof VFX !== 'undefined') VFX.clearFootsteps();
   // Reset to Cyber City on new game
   _themePrev = 0; S.themeIndex = 0; S.themeTransition = 1;
   applyThemeNow(0);
@@ -1842,6 +1898,7 @@ function animate(){
       if(dx<(0.3+hb.w/2)&&dz<(0.5+hb.d/2)&&pTop>oBot&&pBot<oTop){
         S.lives--; updateLivesUI();
         Audio.sfxHit(); MobileUX.hapticHit();
+        VFX.triggerDamageFlash();
         spawnParticles(playerGroup.position.clone().add(new THREE.Vector3(0,1,0)),0xff2200,12);
         S.invincible=true; S.invincibleTimer=2.0; S.combo=0;
         if(S.lives<=0){gameOver();return;}
@@ -1880,6 +1937,11 @@ function animate(){
         S.score+=50; S.combo++; S.comboTimer=3;
         Audio.sfxCoin(); MobileUX.hapticCoin();
         spawnParticles(c.mesh.position.clone(),0xffd700,5);
+        // Floating score popup
+        const popColor = S.combo > 3 ? '#ff44ff' : '#ffd700';
+        const popSize  = S.combo > 3 ? 22 : 17;
+        const popText  = S.combo > 3 ? `+50 ×${S.combo}` : '+50';
+        VFX.spawnScorePopup(popText, c.mesh.position.x, 1.2, c.mesh.position.z, popColor, popSize);
         if(S.combo>3){
           const el=document.getElementById('combo');
           el.textContent=`COMBO x${S.combo}!`; el.style.opacity='1';
@@ -1899,8 +1961,246 @@ function animate(){
 
   for(let i=0;i<3;i++) document.getElementById(`dot${i}`).classList.toggle('active',i===S.lane);
   camera.position.x+=(S.playerX*0.1-camera.position.x)*3*dt;
+
+  // ── Visual Effects tick ──
+  VFX.drawSpeedLines(S.activePowerup==='slowmo' ? S.baseSpeed : S.speed, now);
+  VFX.updateReflection(S.playerX, S.playerY, S.isDucking);
+  VFX.updateFootsteps(S.speed, dt, now);
+  VFX.updateWarnings(obstacles, S.speed);
+  VFX.updateDamageFlash(dt);
+
   renderer.render(scene,camera);
 }
+// ── Visual Effects ────────────────────────────────────────────────────────────
+const VFX = (() => {
+
+  // ── 1. Speed Lines (2D Canvas overlay) ──────────────────────────────────────
+  const slCanvas = document.getElementById('speed-lines');
+  const slCtx    = slCanvas.getContext('2d');
+  let   slLines  = [];
+
+  function resizeSpeedLines() {
+    slCanvas.width  = window.innerWidth;
+    slCanvas.height = window.innerHeight;
+  }
+  resizeSpeedLines();
+  window.addEventListener('resize', resizeSpeedLines);
+
+  // Pre-generate 80 lines with random angles
+  for (let i = 0; i < 80; i++) {
+    slLines.push({
+      angle: (Math.random() * Math.PI * 2),
+      len:   40 + Math.random() * 120,
+      dist:  0.18 + Math.random() * 0.42, // fraction of screen half-diagonal
+      speed: 0.6 + Math.random() * 1.4,
+      phase: Math.random() * Math.PI * 2,
+      w:     0.4 + Math.random() * 1.2,
+    });
+  }
+
+  function drawSpeedLines(gameSpeed, now) {
+    const W = slCanvas.width, H = slCanvas.height;
+    const cx = W * 0.5, cy = H * 0.45; // slightly above center
+    const diag = Math.sqrt(cx*cx + cy*cy);
+
+    // Opacity scales with speed: 0 below 1.5x, max at 3x+
+    const t = Math.max(0, Math.min(1, (gameSpeed/12 - 1.5) / 2.5));
+    slCanvas.style.opacity = t * 0.75;
+    if (t < 0.01) { slCtx.clearRect(0,0,W,H); return; }
+
+    slCtx.clearRect(0, 0, W, H);
+    slLines.forEach(l => {
+      // Each line pulses along its radial direction
+      const pulse = (Math.sin(now * l.speed * 3 + l.phase) * 0.5 + 0.5);
+      const dist  = (l.dist + pulse * 0.12) * diag;
+      const sx    = cx + Math.cos(l.angle) * dist;
+      const sy    = cy + Math.sin(l.angle) * dist;
+      const ex    = cx + Math.cos(l.angle) * (dist + l.len * t);
+      const ey    = cy + Math.sin(l.angle) * (dist + l.len * t);
+
+      const alpha = pulse * t * 0.7;
+      slCtx.save();
+      slCtx.strokeStyle = `rgba(180,230,255,${alpha})`;
+      slCtx.lineWidth   = l.w * t;
+      slCtx.shadowColor = 'rgba(0,200,255,0.4)';
+      slCtx.shadowBlur  = 3;
+      slCtx.beginPath();
+      slCtx.moveTo(sx, sy);
+      slCtx.lineTo(ex, ey);
+      slCtx.stroke();
+      slCtx.restore();
+    });
+  }
+
+  // ── 2. Ground Reflection (Three.js plane) ───────────────────────────────────
+  const reflGeo = new THREE.PlaneGeometry(LANE_W*3+1, 120);
+  const reflMat = new THREE.MeshBasicMaterial({
+    color: 0x002244, transparent: true, opacity: 0.18,
+    side: THREE.FrontSide, depthWrite: false,
+  });
+  const reflPlane = new THREE.Mesh(reflGeo, reflMat);
+  reflPlane.rotation.x = -Math.PI / 2;
+  reflPlane.position.set(0, 0.01, -50); // just above ground, extends forward
+  scene.add(reflPlane);
+
+  // Reflection image: player silhouette (flipped group)
+  const reflPlayer = new THREE.Group();
+  scene.add(reflPlayer);
+  reflPlayer.scale.y = -0.22; // flip + shrink
+  reflPlayer.position.y = 0.01;
+
+  // Copy player body/head as flat colored meshes for reflection
+  const rBody = new THREE.Mesh(new THREE.BoxGeometry(0.6,0.8,0.35),
+    new THREE.MeshBasicMaterial({color:0x0033aa, transparent:true, opacity:0.35, depthWrite:false}));
+  rBody.position.y = 1.2; reflPlayer.add(rBody);
+  const rHead = new THREE.Mesh(new THREE.BoxGeometry(0.45,0.45,0.45),
+    new THREE.MeshBasicMaterial({color:0x0033aa, transparent:true, opacity:0.25, depthWrite:false}));
+  rHead.position.y = 1.85; reflPlayer.add(rHead);
+
+  function updateReflection(playerX, playerY, isDucking) {
+    reflPlayer.position.x = playerX;
+    reflPlayer.position.z = playerY; // z tracks Z position offset for jump
+    // Fade reflection when player jumps (lifts off ground)
+    const fadeJump = Math.max(0, 1 - playerY * 0.4);
+    rBody.material.opacity = 0.35 * fadeJump;
+    rHead.material.opacity = 0.25 * fadeJump;
+    reflPlane.material.opacity = 0.18 * fadeJump;
+    // Squash when ducking
+    reflPlayer.scale.y = isDucking ? -0.11 : -0.22;
+  }
+
+  // ── 3. Footstep Trails ───────────────────────────────────────────────────────
+  const footsteps = [];
+  let   lastFootX = null, footStepTimer = 0;
+
+  function spawnFootstep(x, lane, now) {
+    const geo = new THREE.CircleGeometry(0.1, 8);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0x00aaff, transparent: true, opacity: 0.55, depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.x = -Math.PI / 2;
+    // Alternate left/right foot
+    const side = (footsteps.length % 2 === 0) ? -0.18 : 0.18;
+    mesh.position.set(x + side, 0.02, 0);
+    scene.add(mesh);
+    footsteps.push({ mesh, life: 1.0, spawnNow: now });
+  }
+
+  function updateFootsteps(speed, dt, now) {
+    if (!S.running || S.isJumping) { footStepTimer = 0; return; }
+    // Frequency scales with speed
+    const interval = Math.max(0.08, 0.3 - speed * 0.008);
+    footStepTimer -= dt;
+    if (footStepTimer <= 0) {
+      footStepTimer = interval;
+      spawnFootstep(S.playerX, S.lane, now);
+    }
+    // Scroll footsteps with track and fade out
+    for (let i = footsteps.length - 1; i >= 0; i--) {
+      const f = footsteps[i];
+      f.mesh.position.z += speed * dt;
+      f.life -= dt * 1.8;
+      f.mesh.material.opacity = Math.max(0, f.life * 0.55);
+      f.mesh.scale.setScalar(1 + (1 - f.life) * 0.6); // expand as fades
+      if (f.life <= 0 || f.mesh.position.z > 10) {
+        scene.remove(f.mesh); footsteps.splice(i, 1);
+      }
+    }
+  }
+
+  // ── 4. Warning Arrows ────────────────────────────────────────────────────────
+  const warnContainer = document.getElementById('warn-arrows');
+  // 3 slots — one per lane
+  const warnEls = [0,1,2].map(i => {
+    const el = document.createElement('div');
+    el.className = `warn-arrow lane-${i}`;
+    el.textContent = '▲';
+    el.style.opacity = '0';
+    warnContainer.appendChild(el);
+    return el;
+  });
+
+  function updateWarnings(obstacles, speed) {
+    // How many seconds ahead to warn: show arrow when ~2s away
+    const WARN_DIST = speed * 2.2;
+    const active = [false, false, false];
+
+    obstacles.forEach(obs => {
+      // obs is coming toward player (positive z = closer)
+      const distAway = -obs.mesh.position.z; // negative = in front of player
+      if (distAway > 0 && distAway < WARN_DIST) {
+        // Only warn for obstacles in the same lane as player, or always show
+        active[obs.lane] = true;
+      }
+    });
+
+    warnEls.forEach((el, i) => {
+      el.style.opacity = active[i] ? '1' : '0';
+      // Highlight player's lane warning differently
+      el.style.transform = (active[i] && i === S.lane)
+        ? 'scale(1.4)' : 'scale(1)';
+      el.style.color = (active[i] && i === S.lane) ? '#ff1100' : '#ff6600';
+    });
+  }
+
+  // ── 5. Score Popups ──────────────────────────────────────────────────────────
+  const popupContainer = document.getElementById('score-popups');
+
+  function spawnScorePopup(text, worldX, worldY, worldZ, color='#ffd700', size=18) {
+    // Project 3D world position to 2D screen coords
+    const vec = new THREE.Vector3(worldX, worldY, worldZ);
+    vec.project(camera);
+    const sx = (vec.x * 0.5 + 0.5) * window.innerWidth;
+    const sy = (-vec.y * 0.5 + 0.5) * window.innerHeight;
+
+    const el = document.createElement('div');
+    el.className = 'score-popup';
+    el.textContent = text;
+    el.style.cssText = `left:${sx}px;top:${sy}px;color:${color};font-size:${size}px;transform:translateX(-50%);`;
+    popupContainer.appendChild(el);
+    // Remove after animation ends (0.85s)
+    setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 900);
+  }
+
+  // ── 6. Damage Flash ──────────────────────────────────────────────────────────
+  const damageFlashEl = document.getElementById('damage-flash');
+  let damageFlashTimer = 0;
+
+  function triggerDamageFlash() {
+    damageFlashEl.style.transition = 'none';
+    damageFlashEl.style.opacity = '1';
+    damageFlashTimer = 0.35;
+  }
+
+  function updateDamageFlash(dt) {
+    if (damageFlashTimer > 0) {
+      damageFlashTimer -= dt;
+      if (damageFlashTimer <= 0) {
+        damageFlashEl.style.transition = 'opacity 0.25s';
+        damageFlashEl.style.opacity    = '0';
+      }
+    }
+  }
+
+  return {
+    drawSpeedLines,
+    updateReflection,
+    updateFootsteps,
+    updateWarnings,
+    spawnScorePopup,
+    triggerDamageFlash,
+    updateDamageFlash,
+    clearFootsteps() {
+      footsteps.forEach(f => scene.remove(f.mesh));
+      footsteps.length = 0;
+      footStepTimer = 0;
+    },
+  };
+})();
+
+
+
 // Guard: animate() hanya boleh dipanggil SATU KALI
 if (!window._sprintLoopStarted) { window._sprintLoopStarted = true; animate(); }
 
