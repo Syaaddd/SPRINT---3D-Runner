@@ -161,14 +161,30 @@ canvas { display:block; }
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 <script>
 // Event listener dipasang PERTAMA — startGame() adalah function declaration (hoisted)
 document.getElementById('start-btn').addEventListener('click', startGame);
 document.getElementById('start-btn').addEventListener('touchend', e=>{e.preventDefault();startGame();},{passive:false});
 
+// Tampilkan error jelas jika Three.js gagal dimuat (CDN issue, dll)
+if (typeof THREE === 'undefined') {
+  var btn = document.getElementById('start-btn');
+  btn.textContent = 'Gagal load game – refresh halaman';
+  btn.style.cssText += ';background:#cc2200;cursor:default;pointer-events:none;';
+  throw new Error('Three.js tidak berhasil dimuat dari CDN');
+}
+
 // ── Renderer ──────────────────────────────────────────────────────────────────
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference:'high-performance' });
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference:'high-performance' });
+} catch(e) {
+  var btn = document.getElementById('start-btn');
+  btn.textContent = 'WebGL tidak didukung di browser ini';
+  btn.style.cssText += ';background:#cc2200;cursor:default;pointer-events:none;';
+  throw e;
+}
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
