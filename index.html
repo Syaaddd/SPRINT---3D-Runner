@@ -667,7 +667,7 @@ function resetState() {
     invincible:false, invincibleTimer:0,
     combo:0, comboTimer:0,
     tileOffset:0, spawnTimer:0, spawnInterval:2.2, diffTimer:0,
-    powerupSpawnTimer: 20 + Math.random()*10, // first spawn 20-30s
+    powerupSpawnTimer: 10 + Math.random()*10, // first spawn 10-20s (cepat terlihat)
     activePowerup: null,   // 'shield' | 'magnet' | 'slowmo' | null
     powerupTimer: 0,       // remaining seconds
     powerupDuration: 0,    // total duration (for progress bar)
@@ -824,7 +824,7 @@ function createObstacle(type, lane, z) {
 
 // ── Coins ─────────────────────────────────────────────────────────────────────
 const coins = [];
-function createCoin(lane, z, y=0.8) {
+function createCoin(lane, z, y=0.5) {
   const c=new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.22,0.08,16),
     new THREE.MeshStandardMaterial({color:0xffd700,emissive:0xffa500,emissiveIntensity:0.6,roughness:0.1,metalness:1}));
   c.position.set(LANES[lane],y,z); c.rotation.x=Math.PI/2;
@@ -1266,7 +1266,7 @@ function animate(){
     S.spawnTimer=S.spawnInterval+Math.random()*0.5;
     createObstacle(OBS_TYPES[Math.floor(Math.random()*OBS_TYPES.length)],Math.floor(Math.random()*3),-60);
     if(Math.random()>0.4){
-      const cl=Math.floor(Math.random()*3), cy=Math.random()>0.5?0.8:1.8;
+      const cl=Math.floor(Math.random()*3), cy=Math.random()>0.6?0.5:1.4;
       for(let ci=0;ci<3;ci++) createCoin(cl,-60-ci*3,cy);
     }
   }
@@ -1277,7 +1277,7 @@ function animate(){
     S.powerupSpawnTimer = 20 + Math.random() * 10;
     const puType = PU_TYPES[Math.floor(Math.random() * PU_TYPES.length)];
     const puLane = Math.floor(Math.random() * 3);
-    createPowerup(puType, puLane, -65);
+    createPowerup(puType, puLane, -45);
   }
 
   // Update & collect power-ups
@@ -1286,13 +1286,17 @@ function animate(){
     pu.mesh.position.z += S.speed * dt;
     pu.mesh.rotation.y += dt * 1.8;
     pu.mesh.rotation.z += dt * 0.9;
-    pu.mesh.position.y = 1.0 + Math.sin(now * 2.5 + i) * 0.22; // float
+    // Float animation — update Y each frame
+    const floatY = 1.0 + Math.sin(now * 2.5 + i) * 0.22;
+    pu.mesh.position.y = floatY;
     if (pu.mesh.position.z > 12) { scene.remove(pu.mesh); powerups.splice(i,1); continue; }
     if (!pu.collected) {
-      const dx = Math.abs(S.playerX - pu.mesh.position.x);
-      const dz = Math.abs(pu.mesh.position.z);
-      const dy = Math.abs(S.playerY - pu.mesh.position.y);
-      if (dx < 0.9 && dz < 1.2 && dy < 1.0) {
+      const dx  = Math.abs(S.playerX - pu.mesh.position.x);
+      const dz  = Math.abs(pu.mesh.position.z); // player always at z=0
+      // Y overlap check — power-up Y is ~0.78..1.22 (float range), player is 0..2.0
+      const pTop = S.playerY + (S.isDucking ? 1.0 : 2.0);
+      const yOverlap = floatY >= S.playerY && floatY <= pTop;
+      if (dx < 1.1 && dz < 1.4 && yOverlap) {
         pu.collected = true;
         spawnParticles(pu.mesh.position.clone(), PU_DEFS[pu.type].color, 14);
         scene.remove(pu.mesh); powerups.splice(i, 1);
@@ -1355,20 +1359,27 @@ function animate(){
     c.mesh.position.z+=S.speed*dt; c.mesh.rotation.y+=dt*3;
     if(c.mesh.position.z>12){scene.remove(c.mesh);coins.splice(i,1);continue;}
     if(!c.collected){
-      const dx=Math.abs(S.playerX-c.mesh.position.x);
-      const dy=Math.abs(S.playerY-c.mesh.position.y);
-      const dz=Math.abs(c.mesh.position.z);
-      // Magnet: pull coins horizontally toward player and auto-collect from any lane
+      const dx  = Math.abs(S.playerX - c.mesh.position.x);
+      const dz  = Math.abs(c.mesh.position.z); // player always at z=0
+      // Y overlap: check if coin Y is within player's vertical extent (0 to 2.0, or 0 to 1.0 ducking)
+      const pBottom = S.playerY;
+      const pTop    = S.playerY + (S.isDucking ? 1.0 : 2.0);
+      const coinY   = c.mesh.position.y;
+      const yOverlap = coinY >= pBottom && coinY <= pTop + 0.3; // +0.3 generous buffer
+
+      // Magnet: pull coins toward player
       const isMagnet = S.activePowerup === 'magnet';
-      if (isMagnet && dz < 18 && c.mesh.position.z < 2) {
-        // Lerp coin toward player X (magnetic pull)
-        c.mesh.position.x += (S.playerX - c.mesh.position.x) * 6 * dt;
-        c.mesh.position.y += (1.0 - c.mesh.position.y) * 4 * dt;
+      if (isMagnet && dz < 20) {
+        c.mesh.position.x += (S.playerX - c.mesh.position.x) * 8 * dt;
+        c.mesh.position.y += (S.playerY + 1.0 - c.mesh.position.y) * 5 * dt;
       }
-      const pickupW = isMagnet ? 1.8 : 0.6;
-      const pickupH = isMagnet ? 1.8 : 0.8;
-      const pickupD = isMagnet ? 1.8 : 1.0;
-      if(dx<pickupW&&dy<pickupH&&dz<pickupD){
+      const pickupW = isMagnet ? 2.5 : 0.7;
+      const pickupD = isMagnet ? 2.5 : 1.2;
+      const canPickup = isMagnet
+        ? (dx < pickupW && dz < pickupD)           // magnet: no Y check needed
+        : (dx < pickupW && dz < pickupD && yOverlap); // normal: need Y overlap
+
+      if(canPickup){
         c.collected=true; scene.remove(c.mesh); coins.splice(i,1);
         S.score+=50; S.combo++; S.comboTimer=3;
         Audio.sfxCoin();
