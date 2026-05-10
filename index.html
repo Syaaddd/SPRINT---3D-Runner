@@ -35,6 +35,45 @@ canvas { display:block; }
   text-shadow:0 0 20px rgba(255,215,0,0.8);
 }
 
+/* Power-up HUD */
+#powerup-hud {
+  position:fixed; top:max(44px,calc(env(safe-area-inset-top) + 44px)); left:max(16px,env(safe-area-inset-left));
+  display:flex; align-items:center; gap:8px;
+  opacity:0; transform:translateX(-8px);
+  transition:opacity 0.3s, transform 0.3s;
+  pointer-events:none; z-index:10;
+}
+#powerup-hud.visible { opacity:1; transform:translateX(0); }
+#powerup-icon {
+  width:36px; height:36px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  font-size:20px; border:2px solid currentColor;
+}
+#powerup-hud.pu-shield  #powerup-icon { background:rgba(0,120,255,0.25); color:#44aaff; box-shadow:0 0 14px rgba(0,120,255,0.6); }
+#powerup-hud.pu-magnet  #powerup-icon { background:rgba(255,200,0,0.2);  color:#ffd700; box-shadow:0 0 14px rgba(255,200,0,0.6); }
+#powerup-hud.pu-slowmo  #powerup-icon { background:rgba(170,0,255,0.25); color:#cc66ff; box-shadow:0 0 14px rgba(170,0,255,0.6); }
+#powerup-label { color:#ccc; font-size:11px; letter-spacing:2px; line-height:1.3; }
+#powerup-label .pu-name { font-weight:700; font-size:13px; }
+#powerup-bar-wrap {
+  width:60px; height:4px; background:rgba(255,255,255,0.1);
+  border-radius:2px; overflow:hidden;
+}
+#powerup-bar {
+  height:100%; width:100%; border-radius:2px;
+  transition:width 0.1s linear;
+}
+#powerup-hud.pu-shield #powerup-bar { background:#44aaff; box-shadow:0 0 6px #44aaff; }
+#powerup-hud.pu-magnet #powerup-bar { background:#ffd700; box-shadow:0 0 6px #ffd700; }
+#powerup-hud.pu-slowmo #powerup-bar { background:#cc66ff; box-shadow:0 0 6px #cc66ff; }
+
+/* Slowmo vignette overlay */
+#slowmo-overlay {
+  position:fixed; inset:0; pointer-events:none; z-index:8;
+  background:radial-gradient(ellipse at center, transparent 50%, rgba(80,0,140,0.35) 100%);
+  opacity:0; transition:opacity 0.4s;
+}
+#slowmo-overlay.active { opacity:1; }
+
 /* Lane dots */
 .lane-indicator {
   position:fixed; bottom:max(140px,env(safe-area-inset-bottom,0px)+140px); left:50%; transform:translateX(-50%);
@@ -227,6 +266,18 @@ canvas { display:block; }
 </style>
 </head>
 <body>
+
+<!-- Power-up HUD -->
+<div id="powerup-hud">
+  <div id="powerup-icon"></div>
+  <div id="powerup-label">
+    <div class="pu-name" id="powerup-name"></div>
+    <div id="powerup-timer"></div>
+    <div id="powerup-bar-wrap"><div id="powerup-bar"></div></div>
+  </div>
+</div>
+<!-- Slowmo purple vignette -->
+<div id="slowmo-overlay"></div>
 
 <!-- HUD -->
 <div id="score-display">000000</div>
@@ -529,7 +580,30 @@ const Audio = (() => {
     }
   });
 
-  return { init, sfxJump, sfxCoin, sfxHit, sfxGameOver, startMusic, stopMusic };
+  function sfxPowerup(type) {
+    if (!audioReady) return;
+    const t = ctx.currentTime;
+    if (type === 'shield') {
+      // Rising shimmer chord
+      [440, 554, 659, 880].forEach((f, i) => tone(f, 'sine', t + i*0.06, 0.4, 0.3, 0, sfxGain));
+    } else if (type === 'magnet') {
+      // Warm electric buzz + high ping
+      tone(110, 'sawtooth', t, 0.18, 0.35, 0, sfxGain);
+      tone(880, 'sine',     t + 0.1, 0.25, 0.4, 0, sfxGain);
+      tone(1760,'sine',     t + 0.18, 0.15, 0.3, 0, sfxGain);
+    } else if (type === 'slowmo') {
+      // Dreamy descending sweep
+      const osc = ctx.createOscillator(), g = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, t);
+      osc.frequency.exponentialRampToValueAtTime(220, t + 0.5);
+      g.gain.setValueAtTime(0.4, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
+      osc.connect(g); g.connect(sfxGain); osc.start(t); osc.stop(t + 0.6);
+      tone(440, 'triangle', t + 0.1, 0.4, 0.2, 0, sfxGain);
+    }
+  }
+
+  return { init, sfxJump, sfxCoin, sfxHit, sfxGameOver, sfxPowerup, startMusic, stopMusic };
 })();
 
 
@@ -593,6 +667,11 @@ function resetState() {
     invincible:false, invincibleTimer:0,
     combo:0, comboTimer:0,
     tileOffset:0, spawnTimer:0, spawnInterval:2.2, diffTimer:0,
+    powerupSpawnTimer: 20 + Math.random()*10, // first spawn 20-30s
+    activePowerup: null,   // 'shield' | 'magnet' | 'slowmo' | null
+    powerupTimer: 0,       // remaining seconds
+    powerupDuration: 0,    // total duration (for progress bar)
+    baseSpeed: 12,         // speed saved before slowmo
   };
 }
 resetState();
@@ -643,6 +722,11 @@ const glowSphere = new THREE.Mesh(
   new THREE.MeshBasicMaterial({color:0x00c8ff,transparent:true,opacity:0.04,side:THREE.BackSide})
 );
 glowSphere.position.y = 1; playerGroup.add(glowSphere);
+
+// Player point light — used by shield power-up to cast colored glow
+const playerLight = new THREE.PointLight(0x00c8ff, 0, 6);
+playerLight.position.set(0, 1, 0);
+playerGroup.add(playerLight);
 
 // ── Track ─────────────────────────────────────────────────────────────────────
 function createTile(z) {
@@ -758,7 +842,118 @@ function spawnParticles(pos, color, count=8) {
   }
 }
 
-// ── Input ─────────────────────────────────────────────────────────────────────
+// ── Power-ups ─────────────────────────────────────────────────────────────────
+const powerups = [];
+const PU_DEFS = {
+  shield: { color:0x2288ff, emissive:0x0044ff, label:'SHIELD',  icon:'🛡️',  dur:5,  hudClass:'pu-shield' },
+  magnet: { color:0xffdd00, emissive:0xffaa00, label:'MAGNET',  icon:'🧲',  dur:5,  hudClass:'pu-magnet' },
+  slowmo: { color:0xaa00ff, emissive:0x6600cc, label:'SLOW-MO', icon:'⏱️',  dur:3,  hudClass:'pu-slowmo' },
+};
+const PU_TYPES = Object.keys(PU_DEFS);
+
+function createPowerup(type, lane, z) {
+  const def = PU_DEFS[type];
+  const g = new THREE.Group();
+
+  // Outer ring
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.38, 0.07, 10, 24),
+    new THREE.MeshStandardMaterial({color:def.color, emissive:def.emissive, emissiveIntensity:0.8, roughness:0.1, metalness:0.9})
+  );
+  g.add(ring);
+
+  // Core sphere
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(0.22, 14, 14),
+    new THREE.MeshStandardMaterial({color:def.color, emissive:def.emissive, emissiveIntensity:1.2, roughness:0, metalness:1, transparent:true, opacity:0.9})
+  );
+  g.add(core);
+
+  // Point light aura
+  const light = new THREE.PointLight(def.color, 1.8, 4);
+  g.add(light);
+
+  g.position.set(LANES[lane], 1.0, z);
+  scene.add(g);
+  powerups.push({ mesh:g, type, collected:false });
+}
+
+// ── Power-up HUD controller ───────────────────────────────────────────────────
+const PU_HUD = (() => {
+  const hud   = document.getElementById('powerup-hud');
+  const icon  = document.getElementById('powerup-icon');
+  const name  = document.getElementById('powerup-name');
+  const timer = document.getElementById('powerup-timer');
+  const bar   = document.getElementById('powerup-bar');
+
+  function show(type) {
+    const def = PU_DEFS[type];
+    hud.className = 'visible ' + def.hudClass;
+    icon.textContent = def.icon;
+    name.textContent = def.label;
+  }
+  function update(remaining, total) {
+    timer.textContent = remaining.toFixed(1) + 's';
+    bar.style.width = Math.max(0, (remaining / total) * 100).toFixed(1) + '%';
+  }
+  function hide() {
+    hud.className = '';
+    hud.classList.remove('visible');
+  }
+  return { show, update, hide };
+})();
+
+// ── Activate a power-up ───────────────────────────────────────────────────────
+function activatePowerup(type) {
+  const def = PU_DEFS[type];
+  // Cancel previous if any
+  deactivatePowerup(true);
+
+  S.activePowerup  = type;
+  S.powerupTimer   = def.dur;
+  S.powerupDuration = def.dur;
+  PU_HUD.show(type);
+  Audio.sfxPowerup(type);
+
+  if (type === 'shield') {
+    S.invincible = true;
+    S.invincibleTimer = def.dur;
+    glowSphere.material.color.setHex(0x2288ff);
+    glowSphere.material.opacity = 0.18;
+    playerLight.color.setHex(0x2288ff);
+    playerLight.intensity = 3;
+  } else if (type === 'slowmo') {
+    S.baseSpeed = S.speed;
+    S.speed *= 0.5;
+    document.getElementById('slowmo-overlay').classList.add('active');
+  }
+  // magnet: handled per-frame in coin update
+}
+
+function deactivatePowerup(silent = false) {
+  if (!S.activePowerup) return;
+  const prev = S.activePowerup;
+
+  if (prev === 'shield') {
+    glowSphere.material.color.setHex(0x00c8ff);
+    glowSphere.material.opacity = 0.04;
+    playerLight.intensity = 0;
+    // Only cancel shield-invincibility if it was from power-up (not from hit)
+    if (S.invincible && S.invincibleTimer > 0) {
+      S.invincible = false; S.invincibleTimer = 0;
+      playerGroup.visible = true;
+    }
+  } else if (prev === 'slowmo') {
+    S.speed = S.baseSpeed;
+    document.getElementById('slowmo-overlay').classList.remove('active');
+  }
+
+  S.activePowerup = null;
+  S.powerupTimer  = 0;
+  PU_HUD.hide();
+}
+
+
 const keys={};
 // Keyboard
 document.addEventListener('keydown',e=>{
@@ -946,6 +1141,14 @@ function startGame() {
   obstacles.forEach(o=>{ if(o.mesh.parent) scene.remove(o.mesh); }); obstacles.length=0;
   coins.forEach(c=>{ if(c.mesh.parent) scene.remove(c.mesh); }); coins.length=0;
   particles.forEach(p=>{ if(p.mesh.parent) scene.remove(p.mesh); }); particles.length=0;
+  powerups.forEach(p=>{ if(p.mesh.parent) scene.remove(p.mesh); }); powerups.length=0;
+  // Reset active power-up visuals silently
+  deactivatePowerup(true);
+  PU_HUD.hide();
+  document.getElementById('slowmo-overlay').classList.remove('active');
+  glowSphere.material.color.setHex(0x00c8ff);
+  glowSphere.material.opacity = 0.04;
+  playerLight.intensity = 0;
   // Reset tile positions to initial state so track looks correct from start
   tiles.forEach((t,i)=>{ t.position.z = -i*TILE_LEN + TILE_LEN*2; });
   // Restore playerGroup in case it was accidentally removed, then reset its transform
@@ -1011,9 +1214,16 @@ function animate(){
   S.score += dt*10*(S.speed/12);
   S.diffTimer += dt;
   if(S.diffTimer>8){
-    S.diffTimer=0; S.speed=Math.min(S.speed+0.8,32);
+    S.diffTimer=0;
+    const newSpeed = Math.min((S.activePowerup==='slowmo' ? S.baseSpeed : S.speed) + 0.8, 32);
+    if (S.activePowerup === 'slowmo') {
+      S.baseSpeed = newSpeed;
+      S.speed = newSpeed * 0.5;
+    } else {
+      S.speed = newSpeed;
+    }
     S.spawnInterval=Math.max(S.spawnInterval-0.08,1.0);
-    document.getElementById('speed-display').textContent=`SPEED: ${(S.speed/12).toFixed(1)}x`;
+    document.getElementById('speed-display').textContent=`SPEED: ${((S.activePowerup==='slowmo'?S.baseSpeed:S.speed)/12).toFixed(1)}x`;
   }
   document.getElementById('score-display').textContent=Math.floor(S.score).toString().padStart(6,'0');
 
@@ -1037,7 +1247,7 @@ function animate(){
   leftLeg.rotation.x=sw; rightLeg.rotation.x=-sw;
   leftArm.rotation.x=-sw*0.6; rightArm.rotation.x=sw*0.6;
 
-  if(S.invincible){
+  if(S.invincible && S.activePowerup !== 'shield'){
     S.invincibleTimer-=dt;
     playerGroup.visible=Math.sin(now*20)>0;
     if(S.invincibleTimer<=0){S.invincible=false;playerGroup.visible=true;}
@@ -1059,6 +1269,60 @@ function animate(){
       const cl=Math.floor(Math.random()*3), cy=Math.random()>0.5?0.8:1.8;
       for(let ci=0;ci<3;ci++) createCoin(cl,-60-ci*3,cy);
     }
+  }
+
+  // Spawn power-ups (every 20-30s)
+  S.powerupSpawnTimer -= dt;
+  if (S.powerupSpawnTimer <= 0) {
+    S.powerupSpawnTimer = 20 + Math.random() * 10;
+    const puType = PU_TYPES[Math.floor(Math.random() * PU_TYPES.length)];
+    const puLane = Math.floor(Math.random() * 3);
+    createPowerup(puType, puLane, -65);
+  }
+
+  // Update & collect power-ups
+  for (let i = powerups.length - 1; i >= 0; i--) {
+    const pu = powerups[i];
+    pu.mesh.position.z += S.speed * dt;
+    pu.mesh.rotation.y += dt * 1.8;
+    pu.mesh.rotation.z += dt * 0.9;
+    pu.mesh.position.y = 1.0 + Math.sin(now * 2.5 + i) * 0.22; // float
+    if (pu.mesh.position.z > 12) { scene.remove(pu.mesh); powerups.splice(i,1); continue; }
+    if (!pu.collected) {
+      const dx = Math.abs(S.playerX - pu.mesh.position.x);
+      const dz = Math.abs(pu.mesh.position.z);
+      const dy = Math.abs(S.playerY - pu.mesh.position.y);
+      if (dx < 0.9 && dz < 1.2 && dy < 1.0) {
+        pu.collected = true;
+        spawnParticles(pu.mesh.position.clone(), PU_DEFS[pu.type].color, 14);
+        scene.remove(pu.mesh); powerups.splice(i, 1);
+        activatePowerup(pu.type);
+      }
+    }
+  }
+
+  // Tick active power-up countdown
+  if (S.activePowerup) {
+    S.powerupTimer -= dt;
+    PU_HUD.update(Math.max(0, S.powerupTimer), S.powerupDuration);
+
+    // Shield: keep invincibleTimer in sync while power-up ticks
+    if (S.activePowerup === 'shield') {
+      S.invincible = true;
+      S.invincibleTimer = S.powerupTimer;
+      // Steady visible — override the hit-flicker logic
+      playerGroup.visible = true;
+      // Pulse glow opacity
+      glowSphere.material.opacity = 0.14 + Math.sin(now * 6) * 0.06;
+      playerLight.intensity = 2.5 + Math.sin(now * 8) * 0.5;
+    }
+
+    // Slowmo: keep speed locked (guard against difficulty bumping it)
+    if (S.activePowerup === 'slowmo') {
+      S.baseSpeed = Math.min(S.baseSpeed + (S.diffTimer > 0 ? 0 : 0), 32); // passthrough
+    }
+
+    if (S.powerupTimer <= 0) deactivatePowerup(false);
   }
 
   // Update obstacles
@@ -1094,7 +1358,17 @@ function animate(){
       const dx=Math.abs(S.playerX-c.mesh.position.x);
       const dy=Math.abs(S.playerY-c.mesh.position.y);
       const dz=Math.abs(c.mesh.position.z);
-      if(dx<0.6&&dy<0.8&&dz<1.0){
+      // Magnet: pull coins horizontally toward player and auto-collect from any lane
+      const isMagnet = S.activePowerup === 'magnet';
+      if (isMagnet && dz < 18 && c.mesh.position.z < 2) {
+        // Lerp coin toward player X (magnetic pull)
+        c.mesh.position.x += (S.playerX - c.mesh.position.x) * 6 * dt;
+        c.mesh.position.y += (1.0 - c.mesh.position.y) * 4 * dt;
+      }
+      const pickupW = isMagnet ? 1.8 : 0.6;
+      const pickupH = isMagnet ? 1.8 : 0.8;
+      const pickupD = isMagnet ? 1.8 : 1.0;
+      if(dx<pickupW&&dy<pickupH&&dz<pickupD){
         c.collected=true; scene.remove(c.mesh); coins.splice(i,1);
         S.score+=50; S.combo++; S.comboTimer=3;
         Audio.sfxCoin();
