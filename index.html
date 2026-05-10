@@ -161,8 +161,12 @@ canvas { display:block; }
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" crossorigin="anonymous"></script>
 <script>
+// Event listener dipasang PERTAMA — startGame() adalah function declaration (hoisted)
+document.getElementById('start-btn').addEventListener('click', startGame);
+document.getElementById('start-btn').addEventListener('touchend', e=>{e.preventDefault();startGame();},{passive:false});
+
 // ── Renderer ──────────────────────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference:'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -208,7 +212,7 @@ let S = {};
 function resetState() {
   S = {
     running:false, score:0,
-    bestScore: parseInt(localStorage.getItem('sprint_best')||'0'),
+    bestScore: (function(){try{return parseInt(localStorage.getItem('sprint_best')||'0');}catch(e){return 0;}})(),
     lives:3, speed:12, lane:1, targetX:0, playerX:0,
     jumpVel:0, playerY:0, isJumping:false, isDucking:false,
     invincible:false, invincibleTimer:0,
@@ -427,9 +431,6 @@ document.addEventListener('touchmove',e=>{
 },{passive:true});
 
 // ── Game Logic ────────────────────────────────────────────────────────────────
-document.getElementById('start-btn').addEventListener('click', startGame);
-document.getElementById('start-btn').addEventListener('touchend', e=>{e.preventDefault();startGame();},{passive:false});
-
 function startGame() {
   document.getElementById('overlay').style.display='none';
   document.getElementById('touch-controls').style.pointerEvents='all';
@@ -448,7 +449,7 @@ function startGame() {
 function gameOver() {
   S.running=false;
   document.getElementById('touch-controls').style.pointerEvents='none';
-  if(S.score>S.bestScore){S.bestScore=S.score;localStorage.setItem('sprint_best',S.bestScore);}
+  if(S.score>S.bestScore){S.bestScore=S.score;try{localStorage.setItem('sprint_best',S.bestScore);}catch(e){}}
   document.getElementById('best-text').textContent=`BEST: ${Math.floor(S.bestScore)}`;
   document.getElementById('start-btn').textContent='MAIN LAGI';
   document.getElementById('overlay').style.display='flex';
