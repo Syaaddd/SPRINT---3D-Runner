@@ -80,6 +80,92 @@ canvas { display:block; }
 
 @keyframes shimmer { 0%{background-position:0%} 100%{background-position:200%} }
 
+/* ── Leaderboard ── */
+#leaderboard {
+  width:100%; max-width:340px;
+  margin:clamp(10px,2vh,18px) 0 clamp(10px,2vh,16px);
+}
+#leaderboard-title {
+  font-size:clamp(10px,2.5vw,13px); letter-spacing:4px; color:#00c8ff;
+  text-align:center; margin-bottom:10px;
+  text-shadow:0 0 12px rgba(0,200,255,0.7);
+}
+#lb-table {
+  width:100%; border-collapse:collapse;
+}
+#lb-table tr { border-bottom:1px solid rgba(0,200,255,0.1); }
+#lb-table tr:last-child { border-bottom:none; }
+#lb-table td {
+  padding:7px 6px; font-size:clamp(11px,2.8vw,14px); color:#ccc;
+  white-space:nowrap;
+}
+#lb-table .lb-rank { color:#555; font-variant-numeric:tabular-nums; width:28px; }
+#lb-table .lb-name { color:#eee; max-width:140px; overflow:hidden; text-overflow:ellipsis; }
+#lb-table .lb-score {
+  text-align:right; font-weight:700; font-variant-numeric:tabular-nums;
+  color:#00c8ff; text-shadow:0 0 8px rgba(0,200,255,0.6);
+}
+#lb-table tr.lb-gold   .lb-rank { color:#ffd700; text-shadow:0 0 8px rgba(255,215,0,0.8); }
+#lb-table tr.lb-silver .lb-rank { color:#c0c0c0; }
+#lb-table tr.lb-bronze .lb-rank { color:#cd7f32; }
+#lb-table tr.lb-new td { background:rgba(0,200,255,0.07); }
+#lb-table tr.lb-new .lb-score { color:#ff00aa; text-shadow:0 0 8px rgba(255,0,170,0.7); animation:pulse-new 0.8s ease-in-out infinite alternate; }
+@keyframes pulse-new { from{opacity:0.7} to{opacity:1} }
+#lb-empty { color:#444; font-size:13px; text-align:center; padding:14px 0; letter-spacing:2px; }
+#lb-clear-btn {
+  display:block; margin:10px auto 0;
+  background:transparent; border:1px solid rgba(255,60,60,0.35);
+  color:rgba(255,80,80,0.7); font-size:11px; letter-spacing:2px;
+  padding:5px 16px; border-radius:20px; cursor:pointer;
+  transition:all 0.15s;
+}
+#lb-clear-btn:hover { background:rgba(255,40,40,0.12); color:#ff5555; border-color:rgba(255,60,60,0.6); }
+
+/* ── Name-entry modal ── */
+#name-modal {
+  display:none; position:fixed; inset:0; z-index:50;
+  background:rgba(0,0,0,0.92); backdrop-filter:blur(8px);
+  align-items:center; justify-content:center; flex-direction:column;
+  padding:30px;
+}
+#name-modal.visible { display:flex; }
+#name-modal h2 {
+  font-size:clamp(18px,5vw,26px); font-weight:900; letter-spacing:6px;
+  background:linear-gradient(90deg,#ff00aa,#00c8ff); -webkit-background-clip:text;
+  -webkit-text-fill-color:transparent; margin-bottom:6px; text-align:center;
+}
+#name-modal .nm-score {
+  color:#ffd700; font-size:clamp(20px,6vw,32px); font-weight:700;
+  letter-spacing:4px; margin-bottom:20px;
+  text-shadow:0 0 16px rgba(255,215,0,0.7);
+}
+#name-modal .nm-label { color:#888; font-size:13px; letter-spacing:2px; margin-bottom:10px; }
+#name-input {
+  background:rgba(255,255,255,0.05); border:1px solid rgba(0,200,255,0.5);
+  color:#fff; font-size:clamp(16px,4vw,20px); font-weight:700;
+  text-align:center; letter-spacing:3px; padding:12px 20px;
+  border-radius:12px; width:100%; max-width:260px;
+  outline:none; margin-bottom:20px;
+  text-transform:uppercase;
+  box-shadow:0 0 20px rgba(0,200,255,0.15);
+  -webkit-appearance:none;
+}
+#name-input:focus { border-color:#00c8ff; box-shadow:0 0 28px rgba(0,200,255,0.3); }
+#name-submit {
+  background:linear-gradient(135deg,#ff00aa,#9900ff);
+  border:none; color:#fff; font-size:clamp(14px,3.5vw,17px); font-weight:700;
+  padding:14px 48px; border-radius:50px; cursor:pointer; letter-spacing:3px;
+  box-shadow:0 0 24px rgba(255,0,170,0.4); transition:transform 0.12s;
+  -webkit-appearance:none; user-select:none;
+}
+#name-submit:active { transform:scale(0.96); }
+#name-skip {
+  margin-top:14px; background:transparent; border:none;
+  color:#444; font-size:12px; letter-spacing:2px; cursor:pointer;
+  transition:color 0.15s;
+}
+#name-skip:hover { color:#777; }
+
 /* Mute button */
 #mute-btn {
   position:fixed; bottom:max(16px,env(safe-area-inset-bottom)); left:max(16px,env(safe-area-inset-left));
@@ -158,7 +244,15 @@ canvas { display:block; }
 <div id="overlay">
   <h1>SPRINT</h1>
   <p class="sub">3D ENDLESS RUNNER</p>
-  <p class="best" id="best-text">BEST: 0</p>
+
+  <!-- Leaderboard -->
+  <div id="leaderboard">
+    <p id="leaderboard-title">▸ LEADERBOARD ◂</p>
+    <table id="lb-table"><tbody id="lb-body"></tbody></table>
+    <p id="lb-empty" style="display:none">BELUM ADA SKOR — JADILAH YANG PERTAMA!</p>
+    <button id="lb-clear-btn">HAPUS SEMUA SKOR</button>
+  </div>
+
   <button id="start-btn">MAIN SEKARANG</button>
   <div id="controls-hint">
     <div id="keyboard-hint">
@@ -170,6 +264,16 @@ canvas { display:block; }
       Tombol bawah = Lompat &amp; Jongkok
     </div>
   </div>
+</div>
+
+<!-- Name Entry Modal -->
+<div id="name-modal">
+  <h2>SKOR BARU!</h2>
+  <p class="nm-score" id="nm-score-display">000000</p>
+  <p class="nm-label">MASUKKAN NAMA KAMU</p>
+  <input id="name-input" type="text" maxlength="12" placeholder="NAMA..." autocomplete="off" spellcheck="false">
+  <button id="name-submit">SIMPAN ✦</button>
+  <button id="name-skip">lewati</button>
 </div>
 
 <!-- Touch Controls (mobile only) -->
@@ -701,7 +805,127 @@ document.addEventListener('touchmove',e=>{
   }
 },{passive:true});
 
-// ── Game Logic ────────────────────────────────────────────────────────────────
+// ── Leaderboard ──────────────────────────────────────────────────────────────
+const LB = (() => {
+  const KEY = 'sprint_lb_v1';
+  const MAX = 5;
+  const MEDALS = ['🥇','🥈','🥉','4','5'];
+  const ROW_CLASS = ['lb-gold','lb-silver','lb-bronze','',''];
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem(KEY)) || []; }
+    catch(e) { return []; }
+  }
+  function save(arr) {
+    try { localStorage.setItem(KEY, JSON.stringify(arr)); } catch(e) {}
+  }
+
+  // Returns rank (0-based) if score qualifies for top 5, else -1
+  function qualifies(score) {
+    const entries = load();
+    if (entries.length < MAX) return entries.length; // next slot
+    const min = entries[entries.length - 1].score;
+    if (score > min) return MAX - 1;
+    return -1;
+  }
+
+  function addEntry(name, score) {
+    const entries = load();
+    entries.push({ name: name.trim().toUpperCase().slice(0,12) || 'ANON', score: Math.floor(score) });
+    entries.sort((a,b) => b.score - a.score);
+    const trimmed = entries.slice(0, MAX);
+    save(trimmed);
+    return trimmed;
+  }
+
+  function clear() { save([]); render(-1); }
+
+  function render(highlightScore = -1) {
+    const entries = load();
+    const tbody = document.getElementById('lb-body');
+    const empty  = document.getElementById('lb-empty');
+    tbody.innerHTML = '';
+    if (entries.length === 0) {
+      empty.style.display = 'block';
+      document.getElementById('lb-clear-btn').style.display = 'none';
+      return;
+    }
+    empty.style.display = 'none';
+    document.getElementById('lb-clear-btn').style.display = 'block';
+    entries.forEach((e, i) => {
+      const isNew = highlightScore > 0 && e.score === Math.floor(highlightScore) && i === entries.findIndex(x=>x.score===Math.floor(highlightScore));
+      const tr = document.createElement('tr');
+      if (ROW_CLASS[i]) tr.className = ROW_CLASS[i];
+      if (isNew) tr.classList.add('lb-new');
+      tr.innerHTML = `
+        <td class="lb-rank">${MEDALS[i]}</td>
+        <td class="lb-name">${escHtml(e.name)}</td>
+        <td class="lb-score">${e.score.toString().padStart(6,'0')}</td>`;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // Best score from leaderboard
+  function bestScore() {
+    const e = load();
+    return e.length > 0 ? e[0].score : 0;
+  }
+
+  // Wire clear button
+  document.getElementById('lb-clear-btn').addEventListener('click', () => {
+    if (confirm('Hapus semua skor leaderboard?')) clear();
+  });
+
+  // Initial render
+  render(-1);
+
+  return { qualifies, addEntry, render, bestScore };
+})();
+
+// ── Name Entry Modal ──────────────────────────────────────────────────────────
+const NameModal = (() => {
+  const modal     = document.getElementById('name-modal');
+  const input     = document.getElementById('name-input');
+  const submitBtn = document.getElementById('name-submit');
+  const skipBtn   = document.getElementById('name-skip');
+  const scoreEl   = document.getElementById('nm-score-display');
+  let _score = 0;
+  let _onDone = null;
+
+  function show(score, onDone) {
+    _score = score;
+    _onDone = onDone;
+    scoreEl.textContent = Math.floor(score).toString().padStart(6,'0');
+    input.value = '';
+    modal.classList.add('visible');
+    // Focus with slight delay so soft keyboard opens cleanly on mobile
+    setTimeout(() => input.focus(), 120);
+  }
+
+  function hide() { modal.classList.remove('visible'); }
+
+  function submit() {
+    const name = input.value.trim() || 'ANON';
+    hide();
+    LB.addEntry(name, _score);
+    LB.render(_score);
+    if (_onDone) _onDone();
+  }
+
+  submitBtn.addEventListener('click', submit);
+  skipBtn.addEventListener('click', () => { hide(); LB.render(-1); if (_onDone) _onDone(); });
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+  // Prevent game keys from firing while typing
+  input.addEventListener('keydown', e => e.stopPropagation());
+
+  return { show, hide };
+})();
+
+
 // Pasang listener di sini — setelah startGame terdefinisi
 document.getElementById('start-btn').addEventListener('click', startGame);
 document.getElementById('start-btn').addEventListener('touchend', e=>{e.preventDefault();startGame();},{passive:false});
@@ -712,7 +936,7 @@ function startGame() {
   document.getElementById('overlay').style.display='none';
   document.getElementById('touch-controls').style.pointerEvents='all';
 
-  const best = S.bestScore; // simpan bestScore sebelum reset
+  const best = LB.bestScore(); // pakai bestScore dari leaderboard
   S.running=true; S.score=0; S.bestScore=best; S.lives=3; S.speed=12; S.lane=1;
   S.targetX=0; S.playerX=0; S.jumpVel=0; S.playerY=0;
   S.isJumping=false; S.isDucking=false; S.invincible=false;
@@ -737,6 +961,7 @@ function startGame() {
   document.getElementById('speed-display').textContent='SPEED: 1.0x';
   // Start music — audio context is alive after user interaction (button click)
   setTimeout(()=>Audio.startMusic(), 100);
+  LB.render(-1); // refresh leaderboard tampilan saat game dimulai
 }
 
 function gameOver() {
@@ -744,10 +969,23 @@ function gameOver() {
   Audio.stopMusic();
   Audio.sfxGameOver();
   document.getElementById('touch-controls').style.pointerEvents='none';
-  if(S.score>S.bestScore){S.bestScore=S.score;try{localStorage.setItem('sprint_best',S.bestScore);}catch(e){}}
-  document.getElementById('best-text').textContent=`BEST: ${Math.floor(S.bestScore)}`;
-  document.getElementById('start-btn').textContent='MAIN LAGI';
-  document.getElementById('overlay').style.display='flex';
+
+  const finalScore = Math.floor(S.score);
+  const rank = LB.qualifies(finalScore);
+
+  function showMenu() {
+    document.getElementById('start-btn').textContent='MAIN LAGI';
+    document.getElementById('overlay').style.display='flex';
+  }
+
+  if (rank >= 0 && finalScore > 0) {
+    // Score masuk top 5 — tampilkan name entry dulu
+    NameModal.show(finalScore, showMenu);
+  } else {
+    // Tidak masuk top 5 — langsung ke menu
+    LB.render(-1);
+    showMenu();
+  }
 }
 
 function updateLivesUI(){
