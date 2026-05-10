@@ -244,38 +244,122 @@ canvas { display:block; }
 .screen-shake { animation:shake 0.35s ease-out; }
 
 /* Mobile touch buttons */
+/* ── Touch Controls ── */
 #touch-controls {
   position:fixed; bottom:env(safe-area-inset-bottom,0); left:0; right:0;
-  height:130px; display:none;
+  height:140px; display:none;
   align-items:center; justify-content:space-between;
-  padding:0 16px 8px; z-index:20; pointer-events:none;
+  padding:0 12px 10px; z-index:20; pointer-events:none;
 }
 .touch-btn {
   pointer-events:all;
-  background:rgba(255,255,255,0.08);
-  border:1px solid rgba(255,255,255,0.18);
-  border-radius:16px; color:rgba(255,255,255,0.7);
-  font-size:28px; display:flex; align-items:center; justify-content:center;
+  background:rgba(255,255,255,0.05);
+  border:1.5px solid rgba(255,255,255,0.12);
+  border-radius:20px; color:rgba(255,255,255,0.55);
+  font-size:30px; display:flex; align-items:center; justify-content:center;
   cursor:pointer; user-select:none; -webkit-user-select:none;
-  transition:background 0.1s, transform 0.08s;
-  backdrop-filter:blur(4px);
+  -webkit-touch-callout:none;
+  touch-action:manipulation; /* prevents double-tap zoom */
+  transition:background 0.08s, transform 0.06s, border-color 0.08s;
+  backdrop-filter:blur(6px);
+  -webkit-tap-highlight-color:transparent;
 }
-.touch-btn:active { background:rgba(0,200,255,0.25); transform:scale(0.94); }
-#btn-left  { width:80px; height:80px; }
-#btn-right { width:80px; height:80px; }
-#btn-jump  { width:100px; height:100px; font-size:36px; background:rgba(0,200,255,0.1); border-color:rgba(0,200,255,0.3); }
-#btn-duck  { width:80px; height:80px; background:rgba(255,0,170,0.1); border-color:rgba(255,0,170,0.3); }
+.touch-btn:active {
+  background:rgba(0,200,255,0.18);
+  border-color:rgba(0,200,255,0.4);
+  transform:scale(0.92);
+  color:rgba(255,255,255,0.9);
+}
+#btn-left  { width:90px; height:90px; }
+#btn-right { width:90px; height:90px; }
+#btn-jump  {
+  width:114px; height:114px; font-size:40px;
+  background:rgba(0,200,255,0.07);
+  border-color:rgba(0,200,255,0.22);
+  color:rgba(0,200,255,0.7);
+}
+#btn-jump:active  { background:rgba(0,200,255,0.22); border-color:rgba(0,200,255,0.6); }
+#btn-duck  {
+  width:90px; height:90px;
+  background:rgba(255,0,170,0.07);
+  border-color:rgba(255,0,170,0.22);
+  color:rgba(255,0,170,0.7);
+}
+#btn-duck:active  { background:rgba(255,0,170,0.22); border-color:rgba(255,0,170,0.6); }
 .touch-btn-group { display:flex; flex-direction:column; gap:8px; align-items:center; }
+
+/* Pause button — mobile only, top-right during gameplay */
+#pause-btn {
+  position:fixed; top:max(12px,env(safe-area-inset-top)); right:max(60px,env(safe-area-inset-right,0px)+60px);
+  width:40px; height:40px; border-radius:50%;
+  background:rgba(255,255,255,0.07); border:1.5px solid rgba(255,255,255,0.18);
+  color:rgba(255,255,255,0.65); font-size:18px;
+  display:none; align-items:center; justify-content:center;
+  cursor:pointer; z-index:25; pointer-events:all;
+  touch-action:manipulation; -webkit-tap-highlight-color:transparent;
+  backdrop-filter:blur(6px); transition:background 0.12s;
+}
+#pause-btn:active { background:rgba(255,255,255,0.18); }
+
+/* Pause overlay */
+#pause-overlay {
+  display:none; position:fixed; inset:0; z-index:40;
+  background:rgba(0,0,0,0.82); backdrop-filter:blur(8px);
+  flex-direction:column; align-items:center; justify-content:center; gap:20px;
+}
+#pause-overlay.visible { display:flex; }
+#pause-overlay h2 {
+  font-size:clamp(28px,8vw,48px); font-weight:900; letter-spacing:8px;
+  color:#fff; text-shadow:0 0 30px rgba(0,200,255,0.6);
+}
+.pause-btn-row { display:flex; flex-direction:column; gap:12px; align-items:center; }
+.pause-action-btn {
+  background:rgba(255,255,255,0.07); border:1.5px solid rgba(255,255,255,0.2);
+  color:#fff; font-size:clamp(14px,3.5vw,17px); font-weight:700;
+  padding:14px 48px; border-radius:50px; cursor:pointer;
+  letter-spacing:3px; touch-action:manipulation;
+  -webkit-tap-highlight-color:transparent; user-select:none;
+  transition:background 0.12s;
+}
+.pause-action-btn:active { background:rgba(0,200,255,0.2); }
+#resume-btn { border-color:rgba(0,200,255,0.4); color:#00c8ff; box-shadow:0 0 20px rgba(0,200,255,0.15); }
+#quit-btn   { border-color:rgba(255,60,60,0.3); color:#ff6666; }
+
+/* Swipe hint */
+#swipe-hint {
+  position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+  pointer-events:none; z-index:15; display:none;
+  flex-direction:column; align-items:center; gap:8px;
+  opacity:0; transition:opacity 0.5s;
+}
+#swipe-hint .sh-arrow {
+  font-size:clamp(28px,8vw,42px); color:rgba(255,255,255,0.8);
+  animation:sh-slide 1.2s ease-in-out infinite;
+}
+#swipe-hint .sh-text {
+  font-size:clamp(11px,3vw,14px); letter-spacing:4px; color:rgba(255,255,255,0.55);
+}
+@keyframes sh-slide {
+  0%,100% { transform:translateX(0);   opacity:0.5; }
+  40%      { transform:translateX(-18px); opacity:1; }
+  60%      { transform:translateX(18px);  opacity:1; }
+}
+
+/* Prevent double-tap zoom globally on interactive elements */
+button, [role="button"] { touch-action:manipulation; }
 
 /* Show touch controls on mobile */
 @media (pointer:coarse) {
   #touch-controls { display:flex; }
-  #mobile-hint { display:block; }
-  #keyboard-hint { display:none; }
-  .lane-indicator { bottom:max(150px, calc(env(safe-area-inset-bottom) + 150px)); }
+  #pause-btn      { display:flex; }
+  #mobile-hint    { display:block; }
+  #keyboard-hint  { display:none; }
+  .lane-indicator { bottom:max(160px, calc(env(safe-area-inset-bottom) + 160px)); }
 }
 @media (max-width:480px) {
-  #touch-controls { height:120px; }
+  #touch-controls { height:130px; }
+  #btn-left, #btn-right, #btn-duck { width:82px; height:82px; }
+  #btn-jump { width:100px; height:100px; font-size:36px; }
 }
 </style>
 </head>
@@ -359,6 +443,24 @@ canvas { display:block; }
   <div class="touch-btn-group">
     <button class="touch-btn" id="btn-right">▶</button>
   </div>
+</div>
+
+<!-- Pause button (mobile, top-right during gameplay) -->
+<button id="pause-btn">⏸</button>
+
+<!-- Pause overlay -->
+<div id="pause-overlay">
+  <h2>⏸ PAUSE</h2>
+  <div class="pause-btn-row">
+    <button class="pause-action-btn" id="resume-btn">▶ LANJUT</button>
+    <button class="pause-action-btn" id="quit-btn">✕ KELUAR</button>
+  </div>
+</div>
+
+<!-- Swipe tutorial hint (mobile, fades after first swipe) -->
+<div id="swipe-hint">
+  <div class="sh-arrow">⟺</div>
+  <div class="sh-text">SWIPE UNTUK PINDAH JALUR</div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
@@ -1237,6 +1339,95 @@ function deactivatePowerup(silent = false) {
   PU_HUD.hide();
 }
 
+// ── Mobile UX ─────────────────────────────────────────────────────────────────
+const MobileUX = (() => {
+
+  // ── Haptic feedback ──
+  function vibrate(pattern) {
+    try { if (navigator.vibrate) navigator.vibrate(pattern); } catch(e) {}
+  }
+  const hapticJump = () => vibrate(30);
+  const hapticCoin = () => vibrate([15, 10, 15]);
+  const hapticHit  = () => vibrate([60, 30, 80]);
+  const hapticLane = () => vibrate(12);
+
+  // ── Orientation lock (landscape) ──
+  function lockLandscape() {
+    try {
+      const so = screen.orientation;
+      if (so && so.lock) so.lock('landscape').catch(()=>{});
+    } catch(e) {}
+  }
+  function unlockOrientation() {
+    try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch(e) {}
+  }
+
+  // ── Swipe hint ──
+  const swipeHintEl = document.getElementById('swipe-hint');
+  const SWIPE_KEY = 'sprint_swipe_done';
+  let swipeDone = false;
+  try { swipeDone = !!localStorage.getItem(SWIPE_KEY); } catch(e) {}
+  let hintTimer = null;
+
+  function showSwipeHint() {
+    if (swipeDone) return;
+    if (!window.matchMedia('(pointer:coarse)').matches) return;
+    swipeHintEl.style.display = 'flex';
+    requestAnimationFrame(() => { requestAnimationFrame(() => { swipeHintEl.style.opacity = '1'; }); });
+    hintTimer = setTimeout(hideSwipeHint, 4000);
+  }
+  function hideSwipeHint() {
+    if (hintTimer) { clearTimeout(hintTimer); hintTimer = null; }
+    swipeHintEl.style.opacity = '0';
+    setTimeout(() => { swipeHintEl.style.display = 'none'; }, 500);
+    swipeDone = true;
+    try { localStorage.setItem(SWIPE_KEY, '1'); } catch(e) {}
+  }
+
+  // ── Pause system ──
+  const pauseOverlay = document.getElementById('pause-overlay');
+  const pauseBtn     = document.getElementById('pause-btn');
+  const resumeBtn    = document.getElementById('resume-btn');
+  const quitBtn      = document.getElementById('quit-btn');
+  let paused = false;
+
+  function pause() {
+    if (!S.running || paused) return;
+    paused = true; S.paused = true;
+    pauseOverlay.classList.add('visible');
+    Audio.stopMusic();
+  }
+  function resume() {
+    if (!paused) return;
+    paused = false; S.paused = false;
+    pauseOverlay.classList.remove('visible');
+    Audio.startMusic();
+  }
+  function quitToMenu() {
+    paused = false; S.paused = false; S.running = false;
+    pauseOverlay.classList.remove('visible');
+    Audio.stopMusic();
+    document.getElementById('touch-controls').style.pointerEvents = 'none';
+    document.getElementById('start-btn').textContent = 'MAIN LAGI';
+    LB.render(-1);
+    document.getElementById('overlay').style.display = 'flex';
+  }
+
+  pauseBtn.addEventListener('touchend', e=>{e.preventDefault();pause();},{passive:false});
+  pauseBtn.addEventListener('click', pause);
+  resumeBtn.addEventListener('touchend', e=>{e.preventDefault();resume();},{passive:false});
+  resumeBtn.addEventListener('click', resume);
+  quitBtn.addEventListener('touchend', e=>{e.preventDefault();quitToMenu();},{passive:false});
+  quitBtn.addEventListener('click', quitToMenu);
+  document.addEventListener('keydown', e => { if(e.code==='Escape'){paused?resume():pause();} });
+
+  function resetPause() {
+    paused = false; S.paused = false;
+    pauseOverlay.classList.remove('visible');
+  }
+
+  return { hapticJump, hapticCoin, hapticHit, hapticLane, lockLandscape, unlockOrientation, showSwipeHint, hideSwipeHint, resetPause };
+})();
 
 const keys={};
 // Keyboard
@@ -1244,9 +1435,9 @@ document.addEventListener('keydown',e=>{
   if(!keys[e.code]){
     keys[e.code]=true;
     if(!S.running) return;
-    if((e.code==='ArrowLeft'||e.code==='KeyA')&&S.lane>0){S.lane--;S.targetX=LANES[S.lane];}
-    if((e.code==='ArrowRight'||e.code==='KeyD')&&S.lane<2){S.lane++;S.targetX=LANES[S.lane];}
-    if((e.code==='Space'||e.code==='ArrowUp'||e.code==='KeyW')&&!S.isJumping){S.jumpVel=JUMP_POWER;S.isJumping=true;Audio.sfxJump();}
+    if((e.code==='ArrowLeft'||e.code==='KeyA')&&S.lane>0){S.lane--;S.targetX=LANES[S.lane];MobileUX.hapticLane();}
+    if((e.code==='ArrowRight'||e.code==='KeyD')&&S.lane<2){S.lane++;S.targetX=LANES[S.lane];MobileUX.hapticLane();}
+    if((e.code==='Space'||e.code==='ArrowUp'||e.code==='KeyW')&&!S.isJumping){S.jumpVel=JUMP_POWER;S.isJumping=true;Audio.sfxJump();MobileUX.hapticJump();}
     if(e.code==='ArrowDown'||e.code==='KeyS') S.isDucking=true;
   } else keys[e.code]=true;
 });
@@ -1263,10 +1454,10 @@ function bindBtn(id, action) {
   el.addEventListener('mousedown',()=>action('start'));
   el.addEventListener('mouseup',()=>action('end'));
 }
-bindBtn('btn-left',(ev)=>{ if(!S.running)return; if(ev==='start'&&S.lane>0){S.lane--;S.targetX=LANES[S.lane];} });
-bindBtn('btn-right',(ev)=>{ if(!S.running)return; if(ev==='start'&&S.lane<2){S.lane++;S.targetX=LANES[S.lane];} });
-bindBtn('btn-jump',(ev)=>{ if(!S.running)return; if(ev==='start'&&!S.isJumping){S.jumpVel=JUMP_POWER;S.isJumping=true;Audio.sfxJump();} });
-bindBtn('btn-duck',(ev)=>{ if(!S.running)return; S.isDucking=(ev==='start'); });
+bindBtn('btn-left', (ev)=>{ if(!S.running)return; if(ev==='start'&&S.lane>0){S.lane--;S.targetX=LANES[S.lane];MobileUX.hapticLane();} });
+bindBtn('btn-right',(ev)=>{ if(!S.running)return; if(ev==='start'&&S.lane<2){S.lane++;S.targetX=LANES[S.lane];MobileUX.hapticLane();} });
+bindBtn('btn-jump', (ev)=>{ if(!S.running)return; if(ev==='start'&&!S.isJumping){S.jumpVel=JUMP_POWER;S.isJumping=true;Audio.sfxJump();MobileUX.hapticJump();} });
+bindBtn('btn-duck', (ev)=>{ if(!S.running)return; S.isDucking=(ev==='start'); });
 
 // Swipe detection
 let touchStartX=0, touchStartY=0, swipeLocked=false;
@@ -1281,6 +1472,8 @@ document.addEventListener('touchmove',e=>{
     swipeLocked=true;
     if(dx<0&&S.lane>0){S.lane--;S.targetX=LANES[S.lane];}
     if(dx>0&&S.lane<2){S.lane++;S.targetX=LANES[S.lane];}
+    MobileUX.hapticLane();
+    MobileUX.hideSwipeHint(); // first swipe = tutorial done
   }
 },{passive:true});
 
@@ -1412,6 +1605,8 @@ document.getElementById('start-btn').addEventListener('touchend', e=>{e.preventD
 function startGame() {
   Audio.init();
   Audio.stopMusic();
+  MobileUX.resetPause();
+  MobileUX.lockLandscape();
   document.getElementById('overlay').style.display='none';
   document.getElementById('touch-controls').style.pointerEvents='all';
 
@@ -1454,6 +1649,7 @@ function startGame() {
   document.getElementById('speed-display').textContent='SPEED: 1.0x';
   // Start music — audio context is alive after user interaction (button click)
   setTimeout(()=>Audio.startMusic(), 100);
+  setTimeout(()=>MobileUX.showSwipeHint(), 1500); // show after 1.5s
   LB.render(-1); // refresh leaderboard tampilan saat game dimulai
 }
 
@@ -1494,12 +1690,14 @@ function animate(){
   const dt=Math.min(now-lastT, 0.05); lastT=now;
 
   if(!S.running){
-    // Idle: animasi mengambang di menu — jangan ubah playerGroup.position karena startGame mereset-nya
+    // Idle: animasi mengambang di menu
     const idleY = Math.sin(now*1.5)*0.05;
     playerGroup.position.set(0, idleY, 0);
     playerGroup.rotation.y=Math.sin(now*0.5)*0.1;
     renderer.render(scene,camera); return;
   }
+  // Paused: render scene but skip all game logic
+  if(S.paused){ renderer.render(scene,camera); return; }
 
   S.score += dt*10*(S.speed/12);
   S.diffTimer += dt;
@@ -1643,7 +1841,7 @@ function animate(){
       const oTop=hb.yOff+hb.h/2, oBot=hb.yOff-hb.h/2;
       if(dx<(0.3+hb.w/2)&&dz<(0.5+hb.d/2)&&pTop>oBot&&pBot<oTop){
         S.lives--; updateLivesUI();
-        Audio.sfxHit();
+        Audio.sfxHit(); MobileUX.hapticHit();
         spawnParticles(playerGroup.position.clone().add(new THREE.Vector3(0,1,0)),0xff2200,12);
         S.invincible=true; S.invincibleTimer=2.0; S.combo=0;
         if(S.lives<=0){gameOver();return;}
@@ -1680,7 +1878,7 @@ function animate(){
       if(canPickup){
         c.collected=true; scene.remove(c.mesh); coins.splice(i,1);
         S.score+=50; S.combo++; S.comboTimer=3;
-        Audio.sfxCoin();
+        Audio.sfxCoin(); MobileUX.hapticCoin();
         spawnParticles(c.mesh.position.clone(),0xffd700,5);
         if(S.combo>3){
           const el=document.getElementById('combo');
