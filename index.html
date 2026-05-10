@@ -751,6 +751,33 @@ playerLight.position.set(0, 1, 0);
 playerGroup.add(playerLight);
 
 // ── Track ─────────────────────────────────────────────────────────────────────
+// Material arrays for theme recoloring — declared BEFORE tiles so indexTileMaterials() can be called right after
+const tileRoadMats  = [];
+const tileLaneMats  = [];
+const tileWallMats  = [];
+const tileStripMats = [];
+
+function indexTileMaterials() {
+  tiles.forEach(tile => {
+    tile.children.forEach(child => {
+      if (!child.material) return;
+      const m = child.material;
+      const geo = child.geometry;
+      if (!geo) return;
+      const p = geo.parameters;
+      if (!p) return;
+      // CylinderGeometry = stud → treat like strip
+      if (p.radiusTop !== undefined) { tileStripMats.push(m); return; }
+      if (p.width !== undefined) {
+        if (p.width > 7 && p.height <= 0.16)         { tileRoadMats.push(m); }
+        else if (p.width <= 0.1 && p.depth < 10)     { tileLaneMats.push(m); }
+        else if (p.width <= 0.22 && p.height <= 0.65){ tileWallMats.push(m); }
+        else if (p.width <= 0.06)                    { tileStripMats.push(m); }
+      }
+    });
+  });
+}
+
 function createTile(z) {
   const g = new THREE.Group();
   const road = new THREE.Mesh(
@@ -868,37 +895,6 @@ function spawnParticles(pos, color, count=8) {
 }
 
 // ── Theme System ──────────────────────────────────────────────────────────────
-// Collect references to all tile road & wall materials for recoloring
-const tileRoadMats  = [];
-const tileLaneMats  = [];
-const tileWallMats  = [];
-const tileStripMats = [];
-
-// Rebuild tile material lists after tiles are created (called once after tile creation)
-function indexTileMaterials() {
-  tiles.forEach(tile => {
-    tile.children.forEach(child => {
-      if (!child.material) return;
-      const m = child.material;
-      const geo = child.geometry;
-      if (!geo) return;
-      const p = geo.parameters;
-      if (!p) return;
-
-      // CylinderGeometry = stud → treat like strip
-      if (p.radiusTop !== undefined) {
-        tileStripMats.push(m); return;
-      }
-      // Road: BoxGeometry, width > 7, height ≤ 0.16
-      if (p.width !== undefined) {
-        if (p.width > 7 && p.height <= 0.16)        { tileRoadMats.push(m); }
-        else if (p.width <= 0.1 && p.depth < 10)    { tileLaneMats.push(m); }  // lane marker (short depth)
-        else if (p.width <= 0.22 && p.height <= 0.65){ tileWallMats.push(m); } // wall
-        else if (p.width <= 0.06)                    { tileStripMats.push(m); } // neon strip
-      }
-    });
-  });
-}
 
 const THEMES = [
   {
