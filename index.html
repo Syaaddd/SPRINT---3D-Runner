@@ -80,6 +80,30 @@ canvas { display:block; }
 
 @keyframes shimmer { 0%{background-position:0%} 100%{background-position:200%} }
 
+/* Mute button */
+#mute-btn {
+  position:fixed; bottom:max(16px,env(safe-area-inset-bottom)); left:max(16px,env(safe-area-inset-left));
+  width:42px; height:42px; border-radius:50%;
+  background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2);
+  color:rgba(255,255,255,0.8); font-size:20px; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  z-index:25; transition:background 0.15s, transform 0.1s;
+  backdrop-filter:blur(6px); user-select:none;
+}
+#mute-btn:active { transform:scale(0.9); }
+#mute-btn.muted { background:rgba(255,60,60,0.15); border-color:rgba(255,60,60,0.3); }
+
+/* Screen shake */
+@keyframes shake {
+  0%,100%{transform:translate(0,0);}
+  15%{transform:translate(-6px,3px);}
+  30%{transform:translate(6px,-3px);}
+  45%{transform:translate(-4px,5px);}
+  60%{transform:translate(4px,-2px);}
+  75%{transform:translate(-2px,2px);}
+}
+.screen-shake { animation:shake 0.35s ease-out; }
+
 /* Mobile touch buttons */
 #touch-controls {
   position:fixed; bottom:env(safe-area-inset-bottom,0); left:0; right:0;
@@ -123,6 +147,7 @@ canvas { display:block; }
 <div id="lives-display">♥ ♥ ♥</div>
 <div id="speed-display">SPEED: 1.0x</div>
 <div id="combo"></div>
+<button id="mute-btn" title="Mute/Unmute">🔊</button>
 <div class="lane-indicator">
   <div class="lane-dot" id="dot0"></div>
   <div class="lane-dot active" id="dot1"></div>
@@ -171,7 +196,239 @@ if (typeof THREE === 'undefined') {
   throw new Error('Three.js tidak berhasil dimuat dari CDN');
 }
 
-// ── Renderer ──────────────────────────────────────────────────────────────────
+// ── Audio Engine (Web Audio API — no external files) ─────────────────────────
+const Audio = (() => {
+  let ctx = null, masterGain = null, musicGain = null, sfxGain = null;
+  let muted = false;
+  let musicNodes = {}; // holds running oscillators for the beat
+  let beatInterval = null;
+  let audioReady = false;
+
+  function init() {
+    if (audioReady) return;
+    try {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      masterGain = ctx.createGain(); masterGain.gain.value = 0.7;
+      sfxGain    = ctx.createGain(); sfxGain.gain.value = 1.0;
+      musicGain  = ctx.createGain(); musicGain.gain.value = 0.22;
+      sfxGain.connect(masterGain);
+      musicGain.connect(masterGain);
+      masterGain.connect(ctx.destination);
+      audioReady = true;
+    } catch(e) { console.warn('Web Audio not supported'); }
+  }
+
+  // ── Utility: play a shaped tone ──
+  function tone(freq, type, startT, dur, gainPeak, gainEnd=0, dest=sfxGain, detune=0) {
+    if (!audioReady || muted) return;
+    const osc = ctx.createOscillator();
+    const g   = ctx.createGain();
+    osc.type = type; osc.frequency.value = freq; osc.detune.value = detune;
+    g.gain.setValueAtTime(0, startT);
+    g.gain.linearRampToValueAtTime(gainPeak, startT + 0.01);
+    g.gain.exponentialRampToValueAtTime(Math.max(gainEnd, 0.0001), startT + dur);
+    osc.connect(g); g.connect(dest);
+    osc.start(startT); osc.stop(startT + dur + 0.02);
+  }
+
+  // ── SFX ──────────────────────────────────────────────────────────────────────
+  function sfxJump() {
+    if (!audioReady) return;
+    const t = ctx.currentTime;
+    // Rising sweep
+    const osc = ctx.createOscillator();
+    const g   = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(220, t);
+    osc.frequency.exponentialRampToValueAtTime(660, t + 0.18);
+    g.gain.setValueAtTime(0.5, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+    osc.connect(g); g.connect(sfxGain);
+    osc.start(t); osc.stop(t + 0.25);
+    // Airy layer
+    tone(440, 'triangle', t, 0.15, 0.2, 0, sfxGain);
+  }
+
+  function sfxCoin() {
+    if (!audioReady) return;
+    const t = ctx.currentTime;
+    // Two-note ding
+    tone(1046.5, 'sine', t,       0.12, 0.55, 0, sfxGain); // C6
+    tone(1318.5, 'sine', t + 0.06, 0.14, 0.6,  0, sfxGain); // E6
+    // Shimmer overtone
+    tone(2093,   'sine', t + 0.02, 0.1,  0.15, 0, sfxGain); // C7
+  }
+
+  function sfxHit() {
+    if (!audioReady) return;
+    const t = ctx.currentTime;
+    // Low thud — noise burst via sawtooth detuned cluster
+    for (let i = 0; i < 4; i++) {
+      tone(60 + i*8, 'sawtooth', t, 0.25, 0.4, 0, sfxGain, (Math.random()-0.5)*40);
+    }
+    // Sub boom
+    const sub = ctx.createOscillator();
+    const sg  = ctx.createGain();
+    sub.type = 'sine'; sub.frequency.setValueAtTime(80, t);
+    sub.frequency.exponentialRampToValueAtTime(30, t + 0.3);
+    sg.gain.setValueAtTime(0.7, t);
+    sg.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+    sub.connect(sg); sg.connect(sfxGain);
+    sub.start(t); sub.stop(t + 0.38);
+    // Screen shake
+    document.body.classList.remove('screen-shake');
+    requestAnimationFrame(() => document.body.classList.add('screen-shake'));
+    setTimeout(() => document.body.classList.remove('screen-shake'), 380);
+  }
+
+  function sfxGameOver() {
+    if (!audioReady) return;
+    const t = ctx.currentTime;
+    // Descending chord sweep
+    const freqs = [523.25, 415.30, 349.23, 261.63]; // C5 Ab4 F4 C4
+    freqs.forEach((f, i) => {
+      tone(f, 'sawtooth', t + i*0.18, 0.35, 0.3, 0, sfxGain);
+      tone(f/2, 'sine',   t + i*0.18, 0.4,  0.2, 0, sfxGain);
+    });
+    // Final low drone
+    tone(65.4, 'sawtooth', t + 0.7, 0.8, 0.35, 0.05, sfxGain);
+  }
+
+  // ── Background Music (cyberpunk beat) ────────────────────────────────────────
+  // Pattern: kick + bass + arp — all procedural, no samples
+  const BPM = 128;
+  const BEAT = 60 / BPM; // seconds per beat
+
+  function kick(t) {
+    const osc = ctx.createOscillator();
+    const g   = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(150, t);
+    osc.frequency.exponentialRampToValueAtTime(40, t + 0.12);
+    g.gain.setValueAtTime(0.9, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+    osc.connect(g); g.connect(musicGain);
+    osc.start(t); osc.stop(t + 0.25);
+  }
+
+  function snare(t) {
+    // White noise approximation with filtered oscillators
+    for (let i=0; i<3; i++) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type='sawtooth'; o.frequency.value=200+Math.random()*200;
+      o.detune.value=(Math.random()-0.5)*1200;
+      g.gain.setValueAtTime(0.18, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t+0.1);
+      o.connect(g); g.connect(musicGain);
+      o.start(t); o.stop(t+0.12);
+    }
+  }
+
+  function hat(t, vol=0.12) {
+    for (let i=0; i<2; i++) {
+      const o=ctx.createOscillator();
+      const g=ctx.createGain();
+      o.type='square'; o.frequency.value=6000+Math.random()*4000;
+      g.gain.setValueAtTime(vol, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t+0.04);
+      o.connect(g); g.connect(musicGain);
+      o.start(t); o.stop(t+0.05);
+    }
+  }
+
+  // Bass synth note
+  function bass(t, freq, dur=BEAT*0.4) {
+    const osc=ctx.createOscillator();
+    const g=ctx.createGain();
+    osc.type='sawtooth'; osc.frequency.value=freq;
+    osc.detune.value=-8;
+    g.gain.setValueAtTime(0.5, t);
+    g.gain.setValueAtTime(0.4, t+dur*0.7);
+    g.gain.exponentialRampToValueAtTime(0.001, t+dur);
+    osc.connect(g); g.connect(musicGain);
+    osc.start(t); osc.stop(t+dur+0.02);
+  }
+
+  // Arp synth note
+  function arp(t, freq, dur=BEAT*0.12) {
+    tone(freq, 'square', t, dur, 0.18, 0, musicGain);
+    tone(freq*2, 'sine', t, dur*0.8, 0.06, 0, musicGain);
+  }
+
+  // 4-bar pattern (16 beats)
+  const BASS_LINE = [55, 55, 82.4, 55,  73.4, 55, 55, 82.4,
+                     55, 55, 65.4, 55,  61.7, 55, 55, 73.4];
+  const ARP_LINE  = [220,0,277,0, 330,0,415,0, 330,0,277,0, 220,0,247,0];
+
+  function scheduleMeasure(startT) {
+    // 16 16th-notes per measure (2 bars of 8)
+    for (let i=0;i<16;i++) {
+      const t = startT + i*BEAT*0.5;
+      // Kick: beats 1 and 3 (indices 0 and 8)
+      if(i===0||i===8) kick(t);
+      // Snare: beats 2 and 4 (indices 4 and 12)
+      if(i===4||i===12) snare(t);
+      // Hi-hat every 16th
+      hat(t, i%2===0 ? 0.1 : 0.06);
+      // Bass
+      if(BASS_LINE[i]) bass(t, BASS_LINE[i], BEAT*0.45);
+      // Arp
+      if(ARP_LINE[i]) arp(t, ARP_LINE[i]);
+    }
+  }
+
+  let musicNextTime = 0;
+  let musicTimer = null;
+  const MEASURE_DUR = BEAT * 8; // 16 × BEAT*0.5
+
+  function startMusic() {
+    if (!audioReady || muted) return;
+    stopMusic();
+    musicNextTime = ctx.currentTime + 0.05;
+    function loop() {
+      // Schedule 2 measures ahead
+      while (musicNextTime < ctx.currentTime + MEASURE_DUR * 2) {
+        scheduleMeasure(musicNextTime);
+        musicNextTime += MEASURE_DUR;
+      }
+      musicTimer = setTimeout(loop, (MEASURE_DUR * 0.8) * 1000);
+    }
+    loop();
+  }
+
+  function stopMusic() {
+    if (musicTimer) { clearTimeout(musicTimer); musicTimer=null; }
+    // Fade out master
+    if (audioReady && musicGain) {
+      const t = ctx.currentTime;
+      musicGain.gain.setValueAtTime(musicGain.gain.value, t);
+      musicGain.gain.linearRampToValueAtTime(0, t+0.4);
+      setTimeout(()=>{ if(musicGain) musicGain.gain.value=0.22; }, 500);
+    }
+  }
+
+  // ── Mute toggle ──────────────────────────────────────────────────────────────
+  const muteBtn = document.getElementById('mute-btn');
+  muteBtn.addEventListener('click', () => {
+    if (!audioReady) { init(); }
+    muted = !muted;
+    if (muted) {
+      masterGain.gain.setTargetAtTime(0, ctx.currentTime, 0.05);
+      muteBtn.textContent = '🔇';
+      muteBtn.classList.add('muted');
+    } else {
+      masterGain.gain.setTargetAtTime(0.7, ctx.currentTime, 0.05);
+      muteBtn.textContent = '🔊';
+      muteBtn.classList.remove('muted');
+      if (!S.running) {} else startMusic();
+    }
+  });
+
+  return { init, sfxJump, sfxCoin, sfxHit, sfxGameOver, startMusic, stopMusic };
+})();
+
+
 let renderer;
 try {
   renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference:'high-performance' });
@@ -406,7 +663,7 @@ document.addEventListener('keydown',e=>{
     if(!S.running) return;
     if((e.code==='ArrowLeft'||e.code==='KeyA')&&S.lane>0){S.lane--;S.targetX=LANES[S.lane];}
     if((e.code==='ArrowRight'||e.code==='KeyD')&&S.lane<2){S.lane++;S.targetX=LANES[S.lane];}
-    if((e.code==='Space'||e.code==='ArrowUp'||e.code==='KeyW')&&!S.isJumping){S.jumpVel=JUMP_POWER;S.isJumping=true;}
+    if((e.code==='Space'||e.code==='ArrowUp'||e.code==='KeyW')&&!S.isJumping){S.jumpVel=JUMP_POWER;S.isJumping=true;Audio.sfxJump();}
     if(e.code==='ArrowDown'||e.code==='KeyS') S.isDucking=true;
   } else keys[e.code]=true;
 });
@@ -425,7 +682,7 @@ function bindBtn(id, action) {
 }
 bindBtn('btn-left',(ev)=>{ if(!S.running)return; if(ev==='start'&&S.lane>0){S.lane--;S.targetX=LANES[S.lane];} });
 bindBtn('btn-right',(ev)=>{ if(!S.running)return; if(ev==='start'&&S.lane<2){S.lane++;S.targetX=LANES[S.lane];} });
-bindBtn('btn-jump',(ev)=>{ if(!S.running)return; if(ev==='start'&&!S.isJumping){S.jumpVel=JUMP_POWER;S.isJumping=true;} });
+bindBtn('btn-jump',(ev)=>{ if(!S.running)return; if(ev==='start'&&!S.isJumping){S.jumpVel=JUMP_POWER;S.isJumping=true;Audio.sfxJump();} });
 bindBtn('btn-duck',(ev)=>{ if(!S.running)return; S.isDucking=(ev==='start'); });
 
 // Swipe detection
@@ -450,6 +707,8 @@ document.getElementById('start-btn').addEventListener('click', startGame);
 document.getElementById('start-btn').addEventListener('touchend', e=>{e.preventDefault();startGame();},{passive:false});
 
 function startGame() {
+  Audio.init();
+  Audio.stopMusic();
   document.getElementById('overlay').style.display='none';
   document.getElementById('touch-controls').style.pointerEvents='all';
 
@@ -476,10 +735,14 @@ function startGame() {
   for(let i=0;i<5;i++) createCoin(Math.floor(Math.random()*3),-30-i*15);
   updateLivesUI();
   document.getElementById('speed-display').textContent='SPEED: 1.0x';
+  // Start music — audio context is alive after user interaction (button click)
+  setTimeout(()=>Audio.startMusic(), 100);
 }
 
 function gameOver() {
   S.running=false;
+  Audio.stopMusic();
+  Audio.sfxGameOver();
   document.getElementById('touch-controls').style.pointerEvents='none';
   if(S.score>S.bestScore){S.bestScore=S.score;try{localStorage.setItem('sprint_best',S.bestScore);}catch(e){}}
   document.getElementById('best-text').textContent=`BEST: ${Math.floor(S.bestScore)}`;
@@ -576,6 +839,7 @@ function animate(){
       const oTop=hb.yOff+hb.h/2, oBot=hb.yOff-hb.h/2;
       if(dx<(0.3+hb.w/2)&&dz<(0.5+hb.d/2)&&pTop>oBot&&pBot<oTop){
         S.lives--; updateLivesUI();
+        Audio.sfxHit();
         spawnParticles(playerGroup.position.clone().add(new THREE.Vector3(0,1,0)),0xff2200,12);
         S.invincible=true; S.invincibleTimer=2.0; S.combo=0;
         if(S.lives<=0){gameOver();return;}
@@ -595,6 +859,7 @@ function animate(){
       if(dx<0.6&&dy<0.8&&dz<1.0){
         c.collected=true; scene.remove(c.mesh); coins.splice(i,1);
         S.score+=50; S.combo++; S.comboTimer=3;
+        Audio.sfxCoin();
         spawnParticles(c.mesh.position.clone(),0xffd700,5);
         if(S.combo>3){
           const el=document.getElementById('combo');
