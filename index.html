@@ -1074,8 +1074,8 @@ let _themeTransStart = 0;
 const THEME_TRANSITION_DUR = 2.5; // seconds
 
 function tickTheme(dt, now) {
-  const scoreThreshold = 500;
-  const newIdx = Math.min(Math.floor(S.score / scoreThreshold), THEMES.length - 1);
+  const scoreThreshold = 1500; // ganti tema setiap 1500 poin
+  const newIdx = Math.floor(S.score / scoreThreshold) % THEMES.length; // loop terus
 
   if (newIdx !== S.themeIndex) {
     _themePrev = S.themeIndex;
@@ -1505,14 +1505,15 @@ function animate(){
   S.diffTimer += dt;
   if(S.diffTimer>8){
     S.diffTimer=0;
-    const newSpeed = Math.min((S.activePowerup==='slowmo' ? S.baseSpeed : S.speed) + 0.8, 32);
-    if (S.activePowerup === 'slowmo') {
-      S.baseSpeed = newSpeed;
-      S.speed = newSpeed * 0.5;
+    // Speed naik terus tanpa batas — makin lama makin gila
+    if (S.activePowerup==='slowmo') {
+      S.baseSpeed += 0.8;
+      S.speed = S.baseSpeed * 0.5;
     } else {
-      S.speed = newSpeed;
+      S.speed += 0.8;
     }
-    S.spawnInterval=Math.max(S.spawnInterval-0.08,1.0);
+    // Spawn interval makin cepat tapi minimal 0.6s
+    S.spawnInterval = Math.max(S.spawnInterval - 0.06, 0.6);
     document.getElementById('speed-display').textContent=`SPEED: ${((S.activePowerup==='slowmo'?S.baseSpeed:S.speed)/12).toFixed(1)}x`;
   }
   document.getElementById('score-display').textContent=Math.floor(S.score).toString().padStart(6,'0');
@@ -1618,9 +1619,9 @@ function animate(){
       playerLight.intensity = 2.5 + Math.sin(now * 8) * 0.5;
     }
 
-    // Slowmo: keep speed locked (guard against difficulty bumping it)
+    // Slowmo: baseSpeed tracked separately from halved S.speed
     if (S.activePowerup === 'slowmo') {
-      S.baseSpeed = Math.min(S.baseSpeed + (S.diffTimer > 0 ? 0 : 0), 32); // passthrough
+      // baseSpeed already updated in difficulty block above
     }
 
     if (S.powerupTimer <= 0) deactivatePowerup(false);
